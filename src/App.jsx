@@ -1094,10 +1094,10 @@ function App() {
     setExportingPdf(true)
     try {
       if (previewRef.current) {
-        await exportPreviewElementToPdf(previewRef.current, 'Gamayo_JohnCarlo_Harvard_Resume.pdf')
+        await exportPreviewElementToPdf(previewRef.current, 'generated-resume.pdf')
       } else {
         const doc = buildHarvardResumePdfFromDraft(draft)
-        doc.save('Gamayo_JohnCarlo_Harvard_Resume.pdf')
+        doc.save('generated-resume.pdf')
       }
     } finally {
       setExportingPdf(false)
@@ -1110,7 +1110,7 @@ function App() {
     const url = URL.createObjectURL(blob)
     const anchor = document.createElement('a')
     anchor.href = url
-    anchor.download = 'Gamayo_JohnCarlo_ATS_Resume.txt'
+    anchor.download = 'generated-resume.txt'
     document.body.appendChild(anchor)
     anchor.click()
     anchor.remove()
