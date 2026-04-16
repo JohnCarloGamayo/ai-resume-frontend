@@ -802,6 +802,17 @@ body {
   cursor: pointer;
 }
 
+.history-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.history-delete {
+  border-color: rgba(255, 117, 144, 0.5);
+  color: #ffcad6;
+  background: rgba(126, 33, 56, 0.34);
+}
+
 .modal-backdrop {
   position: fixed;
   inset: 0;
@@ -892,6 +903,40 @@ body.theme-light .site-footer {
   color: #5f6484;
 }
 
+body.theme-light .eyebrow {
+  color: #5a6187;
+}
+
+body.theme-light .top-nav button {
+  color: #3f466d;
+}
+
+body.theme-light .top-nav button.active {
+  color: #1f2550;
+  border-bottom-color: #5f31e8;
+}
+
+body.theme-light .score-orb strong {
+  color: #1f2550;
+}
+
+body.theme-light .score-orb span {
+  color: #5a6187;
+}
+
+body.theme-light .insight-card li {
+  color: #3f466d;
+}
+
+body.theme-light .insight-card .bullet {
+  color: #6a49e8;
+}
+
+body.theme-light .report-head h3,
+body.theme-light .history-title {
+  color: #1f2550;
+}
+
 body.theme-light .report-paragraph,
 body.theme-light .score-table th,
 body.theme-light .score-table td,
@@ -908,6 +953,21 @@ body.theme-light .drop-zone {
   background: #f6f8ff;
   border-color: rgba(32, 38, 79, 0.14);
   color: #1c1f3b;
+}
+
+body.theme-light .form-section-card,
+body.theme-light .nested-card {
+  background: #f8faff;
+  border-color: rgba(32, 38, 79, 0.14);
+}
+
+body.theme-light .form-section-card h3 {
+  color: #2f365f;
+}
+
+body.theme-light .list-label,
+body.theme-light .checkbox-row {
+  color: #4e567d;
 }
 
 body.theme-light .ghost-input::placeholder {
@@ -933,10 +993,22 @@ body.theme-light .history-item button,
 body.theme-light .action-row button,
 body.theme-light .preview-actions button,
 body.theme-light .retry-block button,
+body.theme-light .add-btn,
+body.theme-light .remove-btn,
 body.theme-light .top-nav .theme-toggle {
   color: #232849;
   background: #f5f7ff;
   border-color: rgba(34, 40, 82, 0.2);
+}
+
+body.theme-light .history-delete {
+  border-color: rgba(185, 46, 78, 0.35);
+  color: #8a1531;
+  background: #fff0f3;
+}
+
+body.theme-light .sticky-preview-actions {
+  background: linear-gradient(180deg, rgba(246, 248, 255, 0.98), rgba(246, 248, 255, 0.88), rgba(246, 248, 255, 0));
 }
 
 body.theme-light .action-row button.primary,
@@ -1283,25 +1355,6 @@ body.theme-light .violet-btn {
   .harvard-header h3 {
     font-size: 38px;
   }
-}
-
-body.theme-light .form-section-card,
-body.theme-light .nested-card {
-  background: #ffffff;
-  border-color: rgba(29, 35, 76, 0.12);
-}
-
-body.theme-light .form-section-card h3,
-body.theme-light .list-label,
-body.theme-light .checkbox-row {
-  color: #3b4167;
-}
-
-body.theme-light .add-btn,
-body.theme-light .remove-btn {
-  color: #202548;
-  background: #f3f5ff;
-  border-color: rgba(37, 45, 96, 0.18);
 }
 
 @media (max-width: 900px) {

@@ -1,6 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import axios from 'axios'
 import { jsPDF } from 'jspdf'
+import { useLocation, useNavigate } from 'react-router-dom'
+import AppHeader from './components/AppHeader'
+import AnalysisPage from './pages/AnalysisPage'
+import EditorPage from './pages/EditorPage'
+import HistoryPage from './pages/HistoryPage'
 
 const HISTORY_KEY = 'resume_ai_history_v2'
 const THEME_KEY = 'resume_ai_theme'
@@ -18,6 +23,30 @@ const MODAL_CONTENT = {
     title: 'AI Ethics',
     body: 'AI output may contain inaccuracies. Human review is required, and final hiring decisions should not rely solely on automated suggestions.',
   },
+  editorGuard: {
+    title: 'Evaluation Required',
+    body: 'Please add your resume and job description, then click Evaluate Intelligence before opening the Editor page.',
+  },
+  respectGuard: {
+    title: 'Respect Policy Warning',
+    body: 'Potentially disrespectful language was detected. Please remove inappropriate words before continuing.',
+  },
+}
+
+const BAD_WORD_PATTERNS = [
+  { label: 'f***', regex: /\bf+u+c+k+(?:ing|er|ed|s)?\b/i },
+  { label: 's***', regex: /\bsh+i+t+(?:ty|ting|ted|s)?\b/i },
+  { label: 'b****', regex: /\bb+i+t+c+h+(?:es|y)?\b/i },
+  { label: 'a******', regex: /\bass\s*hole(?:s)?\b/i },
+  { label: 'p***', regex: /\bputa\b/i },
+  { label: 'p******', regex: /\bputang\s*ina\b/i },
+]
+
+function findDetectedBadWords(sourceText) {
+  const text = String(sourceText || '').toLowerCase()
+  if (!text.trim()) return []
+
+  return BAD_WORD_PATTERNS.filter((item) => item.regex.test(text)).map((item) => item.label)
 }
 
 function createEmptyDraft() {
@@ -768,13 +797,20 @@ function App() {
   const [exportingPdf, setExportingPdf] = useState(false)
   const [extracting, setExtracting] = useState(false)
   const [copyStatus, setCopyStatus] = useState('')
-  const [currentView, setCurrentView] = useState('analysis')
   const [historyItems, setHistoryItems] = useState([])
   const [theme, setTheme] = useState('dark')
   const [activeModal, setActiveModal] = useState(null)
   const [draft, setDraft] = useState(createEmptyDraft)
   const [pdfPreviewUrl, setPdfPreviewUrl] = useState('')
   const previewRef = useRef(null)
+  const navigate = useNavigate()
+  const location = useLocation()
+  const currentView =
+    location.pathname === '/editor'
+      ? 'editor'
+      : location.pathname === '/history'
+        ? 'history'
+        : 'analysis'
 
   const api = useMemo(
     () =>
@@ -803,6 +839,20 @@ function App() {
     document.body.classList.toggle('theme-light', theme === 'light')
     localStorage.setItem(THEME_KEY, theme)
   }, [theme])
+
+  useEffect(() => {
+    const supportedPaths = ['/', '/editor', '/history']
+    if (!supportedPaths.includes(location.pathname)) {
+      navigate('/', { replace: true })
+    }
+  }, [location.pathname, navigate])
+
+  useEffect(() => {
+    if (location.pathname === '/editor' && !result) {
+      setActiveModal('editorGuard')
+      navigate('/', { replace: true })
+    }
+  }, [location.pathname, navigate, result])
 
   useEffect(() => {
     const doc = buildHarvardResumePdfFromDraft(draft)
@@ -895,12 +945,20 @@ function App() {
     }))
   }
 
+  const showRespectWarning = () => {
+    setActiveModal('respectGuard')
+  }
+
   const handlePdfUpload = async (event) => {
     const file = event.target.files?.[0]
     if (!file) return
 
-    if (!file.name.toLowerCase().endsWith('.pdf')) {
-      setError('Please upload a PDF resume file.')
+    const filename = file.name.toLowerCase()
+    const isPdf = filename.endsWith('.pdf')
+    const isDocx = filename.endsWith('.docx')
+
+    if (!isPdf && !isDocx) {
+      setError('Please upload a PDF or DOCX resume file.')
       return
     }
 
@@ -913,9 +971,18 @@ function App() {
       const response = await api.post('/extract-resume-text', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
       })
-      setResumeText(response.data.resume_text || '')
+
+      const extractedText = response.data.resume_text || ''
+      const detectedWords = findDetectedBadWords(extractedText)
+      if (detectedWords.length) {
+        setResumeText('')
+        showRespectWarning()
+        return
+      }
+
+      setResumeText(extractedText)
     } catch (uploadError) {
-      setError(uploadError.response?.data?.detail || 'Unable to extract resume text from PDF.')
+      setError(uploadError.response?.data?.detail || 'Unable to extract resume text from file.')
     } finally {
       setExtracting(false)
       event.target.value = ''
@@ -926,6 +993,18 @@ function App() {
     setError('')
     setResult(null)
     setCopyStatus('')
+
+    const resumeDetectedWords = findDetectedBadWords(resumeText)
+    if (resumeDetectedWords.length) {
+      showRespectWarning()
+      return
+    }
+
+    const jobDetectedWords = findDetectedBadWords(jobDescription)
+    if (jobDetectedWords.length) {
+      showRespectWarning()
+      return
+    }
 
     if (resumeText.trim().length < 50) {
       setError('Resume text must be at least 50 characters.')
@@ -985,7 +1064,7 @@ function App() {
 
       const nextDraft = parseAtsToDraft(atsSource)
       setDraft(nextDraft)
-      setCurrentView('analysis')
+      navigate('/')
 
       saveHistory({
         id: Date.now(),
@@ -1008,7 +1087,7 @@ function App() {
   const handleTryAnother = () => {
     setResult(null)
     setCopyStatus('')
-    setCurrentView('analysis')
+    navigate('/')
   }
 
   const handleDownload = async () => {
@@ -1067,7 +1146,7 @@ function App() {
       const nextDraft = parseAtsToDraft(refinedText)
       setDraft(nextDraft)
       setCopyStatus('Refined with AI')
-      setCurrentView('editor')
+      navigate('/editor')
 
       setHistoryItems((prev) => {
         if (!prev.length) return prev
@@ -1101,7 +1180,34 @@ function App() {
     setJobDescription(item.jobDescription || '')
     setResult(item.result || null)
     setDraft(item.draft || parseAtsToDraft(item.result?.ats_resume || ''))
-    setCurrentView('analysis')
+    navigate('/')
+  }
+
+  const handleDeleteHistory = (id) => {
+    setHistoryItems((prev) => {
+      const updated = prev.filter((item) => item.id !== id)
+      localStorage.setItem(HISTORY_KEY, JSON.stringify(updated))
+      return updated
+    })
+  }
+
+  const handleNavigate = (view) => {
+    if (view === 'analysis') {
+      navigate('/')
+      return
+    }
+
+    if (view === 'history') {
+      navigate('/history')
+      return
+    }
+
+    if (!result) {
+      setActiveModal('editorGuard')
+      return
+    }
+
+    navigate('/editor')
   }
 
   const score = Math.max(0, Math.min(100, Number(result?.match_score || 0)))
@@ -1135,62 +1241,15 @@ function App() {
   const missingKeywords = normalizeItems(result?.missing_keywords, ['No missing keyword data returned.'])
   const phrasingImprovements = normalizeItems(result?.phrasing_improvements, normalizeItems(result?.suggestions, ['No phrasing improvements returned.']))
 
-  const header = (
-    <header className="top-nav">
-      <p className="brand serif">Resume Intelligence</p>
-      <nav>
-        <button type="button" className={currentView === 'analysis' ? 'active' : ''} onClick={() => setCurrentView('analysis')}>Analysis</button>
-        <button type="button" className={currentView === 'editor' ? 'active' : ''} onClick={() => setCurrentView('editor')}>Editor</button>
-        <button type="button" className={currentView === 'history' ? 'active' : ''} onClick={() => setCurrentView('history')}>History</button>
-      </nav>
-      <button type="button" className="theme-toggle" onClick={() => setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'))}>
-        {theme === 'dark' ? 'Light Mode' : 'Dark Mode'}
-      </button>
-    </header>
-  )
-
-  if (!result && !loading) {
-    return (
-      <main className="screen landing-screen">
-        {header}
-        <div className="bg-glow" />
-        <section className="hero">
-          <h1 className="serif display lavender">The Resume Intelligence Engine</h1>
-          <p className="lead">Quantify your professional value against any role in seconds.</p>
-        </section>
-
-        <section className="input-grid">
-          <article className="dark-card">
-            <div className="card-head"><p>Your Resume</p><span className="mini-icon">[]</span></div>
-            <label className="drop-zone">
-              <input type="file" accept=".pdf,application/pdf" onChange={handlePdfUpload} className="sr-only" />
-              <span className="upload-icon">up</span>
-              <p>Drag and drop PDF</p>
-              <small>or click to browse files</small>
-            </label>
-            <textarea value={resumeText} onChange={(e) => setResumeText(e.target.value)} placeholder="Or paste raw text" rows={4} className="ghost-input" />
-          </article>
-
-          <article className="dark-card">
-            <div className="card-head"><p>Target Role</p><span className="mini-icon">o</span></div>
-            <textarea value={jobDescription} onChange={(e) => setJobDescription(e.target.value)} placeholder="Paste the job description or role requirements here..." rows={11} className="ghost-input tall" />
-          </article>
-        </section>
-
-        <div className="cta-wrap"><button type="button" disabled={extracting} onClick={handleEvaluate} className="violet-btn">Evaluate Intelligence</button></div>
-        {extracting && <p className="status">Extracting resume text...</p>}
-        {error && <p className="error-pill">{error}</p>}
-
-        <PageFooter onModalOpen={setActiveModal} />
-        {activeModal && <PolicyModal type={activeModal} onClose={() => setActiveModal(null)} />}
-      </main>
-    )
-  }
+  const headerProps = { currentView, onNavigate: handleNavigate, theme, setTheme }
+  const analysisComponents = { ResultCard, HarvardResumePreview, PageFooter, PolicyModal }
+  const editorComponents = { SectionCard, StringListEditor, HarvardResumePreview, PageFooter, PolicyModal }
+  const historyComponents = { PageFooter, PolicyModal }
 
   if (loading) {
     return (
       <main className="screen processing-screen">
-        {header}
+        <AppHeader {...headerProps} />
         <div className="bg-glow" />
         <section className="processing-wrap">
           <div className="processing-copy">
@@ -1213,146 +1272,80 @@ function App() {
     )
   }
 
-  if (currentView === 'editor') {
+  if (currentView === 'editor' && result) {
     return (
-      <main className="screen results-screen">
-        {header}
-        <section className="editor-layout structured-editor-layout">
-          <article className="editor-panel structured-editor-panel">
-            <p className="eyebrow">Structured Resume Editor</p>
-            <h2 className="serif">Harvard Resume Builder</h2>
-
-            <SectionCard title="Professional Summary">
-              <textarea
-                value={draft.summary}
-                onChange={(e) => setDraft((prev) => ({ ...prev, summary: e.target.value }))}
-                rows={5}
-                className="ghost-input"
-                placeholder="Write a concise professional summary"
-              />
-            </SectionCard>
-
-            <SectionCard title="Core Competencies">
-              <StringListEditor
-                items={draft.skills}
-                onAdd={() => addListItem('skills', '')}
-                onChange={(idx, value) => updateListItem('skills', idx, value)}
-                onRemove={(idx) => removeListItem('skills', idx)}
-                placeholder="Skill"
-              />
-            </SectionCard>
-
-            <SectionCard title="Professional Experience">
-              {draft.experience.map((exp, idx) => (
-                <div key={`exp-${idx}`} className="nested-card">
-                  <div className="two-col">
-                    <input className="ghost-input" value={exp.company} onChange={(e) => updateExperienceField(idx, 'company', e.target.value)} placeholder="Company Name" />
-                    <input className="ghost-input" value={exp.jobTitle} onChange={(e) => updateExperienceField(idx, 'jobTitle', e.target.value)} placeholder="Job Title" />
-                  </div>
-                  <div className="three-col">
-                    <input className="ghost-input" value={exp.startDate} onChange={(e) => updateExperienceField(idx, 'startDate', e.target.value)} placeholder="Start Date" />
-                    <input className="ghost-input" value={exp.endDate} disabled={exp.isPresent} onChange={(e) => updateExperienceField(idx, 'endDate', e.target.value)} placeholder="End Date" />
-                    <label className="checkbox-row"><input type="checkbox" checked={exp.isPresent} onChange={(e) => updateExperienceField(idx, 'isPresent', e.target.checked)} /> Present</label>
-                  </div>
-
-                  <StringListEditor
-                    label="Responsibilities"
-                    items={exp.responsibilities}
-                    onAdd={() => addExperienceBullet(idx)}
-                    onChange={(bIdx, value) => updateExperienceBullet(idx, bIdx, value)}
-                    onRemove={(bIdx) => removeExperienceBullet(idx, bIdx)}
-                    placeholder="Responsibility bullet"
-                  />
-
-                  <button type="button" className="remove-btn" onClick={() => removeListItem('experience', idx)}>Remove Experience</button>
-                </div>
-              ))}
-              <button type="button" className="add-btn" onClick={() => addListItem('experience', { company: '', jobTitle: '', startDate: '', endDate: '', isPresent: false, responsibilities: [''] })}>Add Experience</button>
-            </SectionCard>
-
-            <SectionCard title="Projects (Optional)">
-              {draft.projects.map((project, idx) => (
-                <div key={`proj-${idx}`} className="nested-card">
-                  <input className="ghost-input" value={project.name} onChange={(e) => updateListItem('projects', idx, { ...project, name: e.target.value })} placeholder="Project Name" />
-                  <textarea className="ghost-input" rows={4} value={project.description} onChange={(e) => updateListItem('projects', idx, { ...project, description: e.target.value })} placeholder="Project bullets (one per line)" />
-                  <input className="ghost-input" value={project.technologies} onChange={(e) => updateListItem('projects', idx, { ...project, technologies: e.target.value })} placeholder="Technologies used" />
-                  <button type="button" className="remove-btn" onClick={() => removeListItem('projects', idx)}>Remove Project</button>
-                </div>
-              ))}
-              <button type="button" className="add-btn" onClick={() => addListItem('projects', { name: '', description: '', technologies: '' })}>Add Project</button>
-            </SectionCard>
-
-            <SectionCard title="Education">
-              {draft.education.map((edu, idx) => (
-                <div key={`edu-${idx}`} className="nested-card">
-                  <div className="three-col">
-                    <input className="ghost-input" value={edu.school} onChange={(e) => updateListItem('education', idx, { ...edu, school: e.target.value })} placeholder="School Name" />
-                    <input className="ghost-input" value={edu.degree} onChange={(e) => updateListItem('education', idx, { ...edu, degree: e.target.value })} placeholder="Degree" />
-                    <input className="ghost-input" value={edu.year} onChange={(e) => updateListItem('education', idx, { ...edu, year: e.target.value })} placeholder="Year" />
-                  </div>
-                  <button type="button" className="remove-btn" onClick={() => removeListItem('education', idx)}>Remove Education</button>
-                </div>
-              ))}
-              <button type="button" className="add-btn" onClick={() => addListItem('education', { school: '', degree: '', year: '' })}>Add Education</button>
-            </SectionCard>
-
-            <SectionCard title="References (Optional)">
-              <StringListEditor
-                items={draft.references || []}
-                onAdd={() => addListItem('references', '')}
-                onChange={(idx, value) => updateListItem('references', idx, value)}
-                onRemove={(idx) => removeListItem('references', idx)}
-                placeholder="Reference line (e.g., Available upon request)"
-              />
-            </SectionCard>
-
-            <div className="action-row">
-              <button type="button" onClick={handleCopy}>Copy Plaintext</button>
-              <button type="button" onClick={handleRefineWithAi} disabled={refining}>{refining ? 'Refining...' : 'Refine with AI'}</button>
-              <button type="button" onClick={handleDownloadTxt}>Download TXT</button>
-              <button type="button" onClick={handleDownload} className="primary" disabled={exportingPdf}>{exportingPdf ? 'Exporting PDF...' : 'Export PDF'}</button>
-            </div>
-          </article>
-
-          <article className="preview-panel structured-preview-panel">
-            <div className="preview-actions sticky-preview-actions">
-              <button type="button" onClick={handleDownloadTxt}>Download TXT</button>
-              <button type="button" onClick={handleDownload} className="primary" disabled={exportingPdf}>{exportingPdf ? 'Exporting PDF...' : 'Download PDF'}</button>
-            </div>
-            <p className="eyebrow">Live Preview</p>
-            <HarvardResumePreview draft={draft} previewRef={previewRef} />
-          </article>
-        </section>
-        {copyStatus && <p className="status">{copyStatus}</p>}
-        <PageFooter onModalOpen={setActiveModal} />
-        {activeModal && <PolicyModal type={activeModal} onClose={() => setActiveModal(null)} />}
-      </main>
+      <EditorPage
+        headerProps={headerProps}
+        draft={draft}
+        setDraft={setDraft}
+        addListItem={addListItem}
+        updateListItem={updateListItem}
+        removeListItem={removeListItem}
+        updateExperienceField={updateExperienceField}
+        updateExperienceBullet={updateExperienceBullet}
+        addExperienceBullet={addExperienceBullet}
+        removeExperienceBullet={removeExperienceBullet}
+        handleCopy={handleCopy}
+        handleRefineWithAi={handleRefineWithAi}
+        handleDownloadTxt={handleDownloadTxt}
+        handleDownload={handleDownload}
+        refining={refining}
+        exportingPdf={exportingPdf}
+        copyStatus={copyStatus}
+        previewRef={previewRef}
+        activeModal={activeModal}
+        setActiveModal={setActiveModal}
+        components={editorComponents}
+      />
     )
   }
 
   if (currentView === 'history') {
     return (
-      <main className="screen results-screen">
-        {header}
-        <section className="history-wrap">
-          <p className="eyebrow">Saved Local History</p>
-          <h2 className="serif">Previous Analyses</h2>
-          {historyItems.length === 0 ? (
-            <p className="status">No history yet. Run an analysis and it will appear here.</p>
-          ) : (
-            <div className="history-list">
-              {historyItems.map((item) => (
-                <article key={item.id} className="history-item">
-                  <div>
-                    <p className="history-title">{item.verdict} - {item.score}%</p>
-                    <p className="history-meta">{new Date(item.createdAt).toLocaleString()}</p>
-                  </div>
-                  <button type="button" onClick={() => handleLoadHistory(item)}>Load Analysis</button>
-                </article>
-              ))}
-            </div>
-          )}
+      <HistoryPage
+        headerProps={headerProps}
+        historyItems={historyItems}
+        handleLoadHistory={handleLoadHistory}
+        handleDeleteHistory={handleDeleteHistory}
+        activeModal={activeModal}
+        setActiveModal={setActiveModal}
+        components={historyComponents}
+      />
+    )
+  }
+
+  if (!result) {
+    return (
+      <main className="screen landing-screen">
+        <AppHeader {...headerProps} />
+        <div className="bg-glow" />
+        <section className="hero">
+          <h1 className="serif display lavender">The Resume Intelligence Engine</h1>
+          <p className="lead">Quantify your professional value against any role in seconds.</p>
         </section>
+
+        <section className="input-grid">
+          <article className="dark-card">
+            <div className="card-head"><p>Your Resume</p><span className="mini-icon">[]</span></div>
+            <label className="drop-zone">
+              <input type="file" accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" onChange={handlePdfUpload} className="sr-only" />
+              <span className="upload-icon">up</span>
+              <p>Drag and drop PDF or DOCX</p>
+              <small>or click to browse files</small>
+            </label>
+            <textarea value={resumeText} onChange={(e) => setResumeText(e.target.value)} placeholder="Or paste raw text" rows={4} className="ghost-input" />
+          </article>
+
+          <article className="dark-card">
+            <div className="card-head"><p>Target Role</p><span className="mini-icon">o</span></div>
+            <textarea value={jobDescription} onChange={(e) => setJobDescription(e.target.value)} placeholder="Paste the job description or role requirements here..." rows={11} className="ghost-input tall" />
+          </article>
+        </section>
+
+        <div className="cta-wrap"><button type="button" disabled={extracting} onClick={handleEvaluate} className="violet-btn">Evaluate Intelligence</button></div>
+        {extracting && <p className="status">Extracting resume text...</p>}
+        {error && <p className="error-pill">{error}</p>}
+
         <PageFooter onModalOpen={setActiveModal} />
         {activeModal && <PolicyModal type={activeModal} onClose={() => setActiveModal(null)} />}
       </main>
@@ -1360,125 +1353,33 @@ function App() {
   }
 
   return (
-    <main className="screen results-screen">
-      {header}
-      <section className="results-hero">
-        <div>
-          <p className="eyebrow">Intelligence Report</p>
-          <h1 className="serif display">Precision Alignment.</h1>
-          <p className="lead small">Your profile has been cross-referenced with ATS and role-specific heuristics.</p>
-        </div>
-        <div className="score-orb">
-          <svg viewBox="0 0 120 120" className="score-ring">
-            <circle cx="60" cy="60" r="52" className="ring-bg" />
-            <circle cx="60" cy="60" r="52" className="ring-value" strokeDasharray={circumference} strokeDashoffset={dashOffset} />
-          </svg>
-          <strong>{score}%</strong>
-          <span>Match Score</span>
-        </div>
-      </section>
-
-      <section className="insight-grid">
-        <ResultCard title="Strategic Assets" items={result.strengths} tone="success" />
-        <ResultCard title="Growth Opportunities" items={result.skill_gaps} tone="warning" />
-        <ResultCard title="Actionable Refinements" items={result.suggestions} tone="info" />
-      </section>
-
-      <section className="report-section">
-        <div className="report-head">
-          <p className="eyebrow">Executive Summary</p>
-          <h3 className="serif">Evaluation Narrative</h3>
-        </div>
-        <p className="report-paragraph">{executiveSummary}</p>
-      </section>
-
-      <section className="report-section">
-        <div className="report-head">
-          <p className="eyebrow">Quantitative Breakdown</p>
-          <h3 className="serif">Normalized Scoring Components</h3>
-        </div>
-        <div className="table-wrap">
-          <table className="score-table">
-            <thead>
-              <tr>
-                <th>Category</th>
-                <th>Score</th>
-                <th>Weight</th>
-                <th>Weighted</th>
-                <th>Reasoning</th>
-              </tr>
-            </thead>
-            <tbody>
-              {breakdown.map((item, idx) => {
-                const rawScore = Number(item?.score || 0)
-                const clampedScore = Math.max(0, Math.min(100, rawScore))
-                const weight = Number(item?.weight || 0)
-                const weighted = (clampedScore * weight).toFixed(2)
-                return (
-                  <tr key={`score-row-${idx}`}>
-                    <td>{item?.category || 'N/A'}</td>
-                    <td>{clampedScore}%</td>
-                    <td>{(weight * 100).toFixed(1)}%</td>
-                    <td>{weighted}</td>
-                    <td>{item?.reasoning || 'No reasoning provided.'}</td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
-        <p className="formula-line">{normalizedScoring}</p>
-      </section>
-
-      <section className="report-section report-grid-2">
-        <ResultCard title="Critical Gaps" items={criticalGaps} tone="warning" />
-        <ResultCard title="Moderate Gaps" items={moderateGaps} tone="info" />
-      </section>
-
-      <section className="report-section report-grid-2">
-        <ResultCard title="Optional Gaps" items={optionalGaps} tone="info" />
-        <ResultCard title="ATS Missing Keywords" items={missingKeywords} tone="warning" />
-      </section>
-
-      <section className="report-section">
-        <ResultCard title="ATS Phrasing Improvements" items={phrasingImprovements} tone="success" />
-      </section>
-
-      <section className="output-head">
-        <div>
-          <p className="eyebrow">Output Preview</p>
-          <h2 className="serif">Harvard Resume Output</h2>
-        </div>
-        {result?.ats_resume && (
-          <div className="action-row">
-            <button type="button" onClick={handleCopy}>Copy Plaintext</button>
-            <button type="button" onClick={handleRefineWithAi} disabled={refining}>{refining ? 'Refining...' : 'Refine with AI'}</button>
-            <button type="button" onClick={handleDownloadTxt}>Download TXT</button>
-            <button type="button" onClick={handleDownload} className="primary" disabled={exportingPdf}>{exportingPdf ? 'Exporting PDF...' : 'Export PDF'}</button>
-          </div>
-        )}
-      </section>
-
-      {result?.ats_resume ? (
-        <div className="resume-preview"><HarvardResumePreview draft={draft} previewRef={previewRef} /></div>
-      ) : (
-        <div className="error-pill">No tailored resume draft generated yet. Re-run analysis.</div>
-      )}
-
-      {!result.is_qualified && result?.ats_resume && (
-        <div className="status">Current match is below qualified threshold, but a tailored draft has been generated for improvement.</div>
-      )}
-      {refining && <p className="status">Applying AI suggestions and refining your resume draft...</p>}
-
-      <section className="retry-block">
-        <h3 className="serif">Iterate toward perfection.</h3>
-        <p>Adjust details and run analysis again to improve your score.</p>
-        <button type="button" onClick={handleTryAnother}>Try Another Analysis</button>
-      </section>
-
-      <PageFooter onModalOpen={setActiveModal} />
-      {activeModal && <PolicyModal type={activeModal} onClose={() => setActiveModal(null)} />}
-    </main>
+    <AnalysisPage
+      headerProps={headerProps}
+      score={score}
+      circumference={circumference}
+      dashOffset={dashOffset}
+      result={result}
+      executiveSummary={executiveSummary}
+      breakdown={breakdown}
+      normalizedScoring={normalizedScoring}
+      criticalGaps={criticalGaps}
+      moderateGaps={moderateGaps}
+      optionalGaps={optionalGaps}
+      missingKeywords={missingKeywords}
+      phrasingImprovements={phrasingImprovements}
+      draft={draft}
+      previewRef={previewRef}
+      refining={refining}
+      exportingPdf={exportingPdf}
+      handleCopy={handleCopy}
+      handleRefineWithAi={handleRefineWithAi}
+      handleDownloadTxt={handleDownloadTxt}
+      handleDownload={handleDownload}
+      handleTryAnother={handleTryAnother}
+      activeModal={activeModal}
+      setActiveModal={setActiveModal}
+      components={analysisComponents}
+    />
   )
 }
 
